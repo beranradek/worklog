@@ -53,6 +53,7 @@ uv sync  # or: pip install -e .
      8. Set authorized redirect URL: `https://your-project.supabase.co/auth/v1/callback`
      9. Save and copy the Client ID and Client Secret
    - Paste your Google OAuth Client ID and Client Secret to Supabase Google provider settings and save
+   - After BE deployment, Settings - API - Configure Site URL field to BE URL (e.g., `https://your-api-domain.azurewebsites.net`)
 
 3. **Initialize Database**:
    - Go to **SQL Editor** in Supabase Dashboard
@@ -261,19 +262,149 @@ The backend automatically configures CORS for the specified origins.
 - Docker installed
 - Azure subscription
 
-### Deploy Script
+### Step 1: One-Time Azure Setup (First Deployment Only)
+
+If this is your first time deploying containers to Azure, register the required resource providers:
 
 ```bash
+# Register Azure Container Registry provider
+az provider register --namespace Microsoft.ContainerRegistry
+
+# Register Web App provider
+az provider register --namespace Microsoft.Web
+
+# Wait for registration to complete (takes 2-3 minutes)
+az provider show --namespace Microsoft.ContainerRegistry --query "registrationState" -o tsv
+az provider show --namespace Microsoft.Web --query "registrationState" -o tsv
+# Both should show "Registered"
+```
+
+### Step 2: Deploy Using Script
+
+```bash
+# Set your subscription and verify authentication
+az account set --subscription <your-subscription-id>
+az account show
+
 # Create all resources and deploy
 ./scripts/deploy-azure.sh \
   --subscription your-subscription-id \
   --resource-group worklog-rg \
-  --app-name worklog-app \
-  --location your-location \
+  --app-name <unique-app-name> \
+  --location germanywestcentral \
   --create-resources
 
-# Just build Docker image locally
-./scripts/deploy-azure.sh --build-only
+# Note: App name must be globally unique across all Azure
+# If "worklog-app" is taken, try: worklog-yourname, worklog-company, etc.
+```
+
+**Important**: If the script fails with "Readme file does not exist" error, the Dockerfile needs README.md. This is already fixed in the repo, but if you encounter it:
+
+```bash
+# The Dockerfile should include this line:
+# COPY README.md .
+```
+
+### Step 3: Manual Deployment Steps (Alternative to Script)
+
+Create webapp with container deployment:
+
+```bash
+(az webapp create --name <worklog-app-name> --resource-group worklog-rg --plan worklog-app-plan --deployment-container-image-name worklogappacr.azurecr.io/worklog-app:latest && echo "Webapp created") || echo "Webapp already exists"
+```
+
+Build Docker image:
+
+```bash
+docker build -t worklogappacr.azurecr.io/worklog-app:latest .
+```
+
+Push Docker image to Azure Container Registry:
+
+```bash
+docker push worklogappacr.azurecr.io/worklog-app:latest
+```
+
+Configure webapp settings (environment variables):
+
+```bash
+source .env && az webapp config appsettings set --name <worklog-app-name> --resource-group worklog-rg --settings SUPABASE_URL="$SUPABASE_URL" SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY" FRONTEND_URL="$FRONTEND_URL" APP_NAME="$APP_NAME" APP_ENV="production" CORS_ORIGINS="$CORS_ORIGINS" DEBUG="false" WORKERS="2"
+# Check variables were set:
+az webapp config appsettings list --name <worklog-app-name> --resource-group worklog-rg --query "[?name=='SUPABASE_URL' || name=='SUPABASE_PUBLISHABLE_KEY' || name=='FRONTEND_URL']"
+# Chech port configuration:
+az webapp config show --name <worklog-app-name> --resource-group worklog-rg --query "{linuxFxVersion:linuxFxVersion, appCommandLine:appCommandLine}" -o json
+```
+
+Enable continuous deployment in Azure:
+
+```bash
+az webapp deployment container config --name <worklog-app-name> --resource-group worklog-rg --enable-cd true && echo "Continuous deployment enabled"
+```
+
+Restarting webapp:
+
+```bash
+az webapp restart --name <worklog-app-name> --resource-group worklog-rg && echo "App restarted"
+```
+
+Check logs:
+
+```bash
+az webapp log tail --name <worklog-app-name> --resource-group worklog-rg --only-show-errors 2>&1 | head -50 || echo "Not available yet"
+```
+
+Check webapp state:
+
+```bash
+az webapp show --name <worklog-app-name> --resource-group worklog-rg --query "{state:state, defaultHostName:defaultHostName}"
+curl -s -w "\nHTTP Status: %{http_code}\n" https://<worklog-app-name>.azurewebsites.net/health
+curl -s -w "\nHTTP Status: %{http_code}\n" https://<worklog-app-name>.azurewebsites.net/api/status
+```
+
+### Step 4: Configure Container for Production (Important!)
+
+If the container times out during startup (returns 503), apply these production configurations:
+
+```bash
+# Enable container logging to debug issues
+az webapp log config --name <worklog-app-name> --resource-group worklog-rg \
+  --docker-container-logging filesystem
+
+# Increase container startup timeout (default is 230s, increase to 600s)
+az webapp config appsettings set --name <worklog-app-name> --resource-group worklog-rg \
+  --settings WEBSITES_CONTAINER_START_TIME_LIMIT="600" \
+  -o none
+
+# Configure health check path (tells Azure where to check if app is alive)
+az webapp config set --name <worklog-app-name> --resource-group worklog-rg \
+  --generic-configurations '{"healthCheckPath": "/health"}'
+
+# Restart to apply all changes
+az webapp restart --name <worklog-app-name> --resource-group worklog-rg
+
+# Stream logs to verify startup (wait 30-60 seconds)
+az webapp log tail --name <worklog-app-name> --resource-group worklog-rg
+```
+
+**Expected successful output in logs:**
+```
+INFO:     Started server process [X]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+Site started.
+```
+
+### Step 5: Verify Deployment
+
+```bash
+# Check health endpoint (should return 200 OK)
+curl https://<worklog-app-name>.azurewebsites.net/health
+
+# Check API status
+curl https://<worklog-app-name>.azurewebsites.net/api/status
+
+# Check Google OAuth URL endpoint
+curl https://<worklog-app-name>.azurewebsites.net/api/auth/google
 ```
 
 ### GitHub Actions (Automatic Deployment)

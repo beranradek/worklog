@@ -140,6 +140,39 @@ log_info "Setting Azure subscription..."
 az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 log_success "Subscription set"
 
+# Step 1.5: Check and register resource providers (required for new subscriptions)
+log_info "Checking Azure resource providers..."
+
+# Check Container Registry provider
+ACR_PROVIDER_STATE=$(az provider show --namespace Microsoft.ContainerRegistry --query "registrationState" -o tsv 2>/dev/null || echo "NotRegistered")
+if [ "$ACR_PROVIDER_STATE" != "Registered" ]; then
+    log_warning "Container Registry provider not registered. Registering now..."
+    az provider register --namespace Microsoft.ContainerRegistry
+
+    # Wait for registration (max 3 minutes)
+    for i in {1..18}; do
+        sleep 10
+        STATE=$(az provider show --namespace Microsoft.ContainerRegistry --query "registrationState" -o tsv)
+        if [ "$STATE" = "Registered" ]; then
+            log_success "Container Registry provider registered"
+            break
+        fi
+        if [ $i -eq 18 ]; then
+            log_error "Container Registry provider registration timeout. Run manually: az provider register --namespace Microsoft.ContainerRegistry"
+            exit 1
+        fi
+    done
+else
+    log_success "Container Registry provider already registered"
+fi
+
+# Check Web provider
+WEB_PROVIDER_STATE=$(az provider show --namespace Microsoft.Web --query "registrationState" -o tsv 2>/dev/null || echo "NotRegistered")
+if [ "$WEB_PROVIDER_STATE" != "Registered" ]; then
+    log_info "Registering Web provider..."
+    az provider register --namespace Microsoft.Web
+fi
+
 # Step 2: Create resources if requested
 if [ "$CREATE_RESOURCES" = true ]; then
     # Create resource group if it doesn't exist
@@ -184,11 +217,25 @@ if [ "$CREATE_RESOURCES" = true ]; then
         # Get ACR login server
         ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query loginServer -o tsv)
 
-        az webapp create \
+        # Try to create web app
+        if ! az webapp create \
             --name "$AZURE_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --plan "$APP_SERVICE_PLAN" \
-            --deployment-container-image-name "$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG"
+            --deployment-container-image-name "$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG" 2>&1 | tee /tmp/webapp-create.log; then
+
+            # Check if it's a name conflict
+            if grep -q "already exists" /tmp/webapp-create.log || grep -q "globally unique" /tmp/webapp-create.log; then
+                log_error "Web App name '$AZURE_APP_NAME' is already taken globally by another Azure user."
+                log_error "Azure App Service names must be globally unique across ALL Azure customers."
+                log_error "Please choose a different name using --app-name flag."
+                log_error "Suggestions: ${AZURE_APP_NAME}-yourname, ${AZURE_APP_NAME}-company, ${AZURE_APP_NAME}-$(date +%Y)"
+                exit 1
+            else
+                log_error "Failed to create Web App. Check the error above."
+                exit 1
+            fi
+        fi
 
         log_success "Web App created"
     else
@@ -334,6 +381,32 @@ az webapp deployment container config \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --enable-cd true
 
+# Configure production settings for container
+log_info "Configuring production settings..."
+
+# Enable container logging
+az webapp log config \
+    --name "$AZURE_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --docker-container-logging filesystem \
+    >/dev/null 2>&1
+
+# Increase container startup timeout to 10 minutes (default is ~4 min)
+az webapp config appsettings set \
+    --name "$AZURE_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --settings WEBSITES_CONTAINER_START_TIME_LIMIT="600" WEBSITES_PORT="8000" \
+    -o none
+
+# Configure health check path
+az webapp config set \
+    --name "$AZURE_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --generic-configurations '{"healthCheckPath": "/health"}' \
+    >/dev/null 2>&1
+
+log_success "Production settings configured"
+
 # Step 6: Restart app to apply changes
 log_info "Restarting Web App..."
 az webapp restart --name "$AZURE_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP"
@@ -347,8 +420,21 @@ log_info "Application URL: https://$APP_URL"
 log_info "Health Check: https://$APP_URL/health"
 log_info "API Status: https://$APP_URL/api/status"
 echo ""
-log_warning "Don't forget to:"
-echo "  1. Configure environment variables (SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, etc.)"
+log_warning "Waiting 30 seconds for container to start..."
+sleep 30
+log_info "Testing health endpoint..."
+if curl -sf "https://$APP_URL/health" >/dev/null 2>&1; then
+    log_success "Health check passed! App is running."
+else
+    log_warning "Health check pending. Container may still be starting (can take up to 10 minutes)."
+    log_info "Monitor startup: az webapp log tail --name $AZURE_APP_NAME --resource-group $AZURE_RESOURCE_GROUP"
+fi
+echo ""
+log_warning "Next steps:"
+echo "  1. Configure environment variables:"
+echo "     az webapp config appsettings set --name $AZURE_APP_NAME --resource-group $AZURE_RESOURCE_GROUP \\"
+echo "       --settings SUPABASE_URL='...' SUPABASE_PUBLISHABLE_KEY='...' FRONTEND_URL='...' APP_ENV='production' DEBUG='false'"
 echo "  2. Run the SQL initialization script in Supabase"
 echo "  3. Configure Google OAuth in Supabase Dashboard"
 echo "  4. Update CORS settings with your frontend URL"
+echo "  5. Set up GitHub Actions for automatic deployments (see README.md)"
