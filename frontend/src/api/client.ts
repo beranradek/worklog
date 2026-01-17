@@ -2,10 +2,12 @@
  * API client for the Worklog Application
  */
 
-// API base URL - defaults to localhost:8000
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// API base URL - use VITE_API_URL if set, otherwise use relative URLs (same origin)
+// In production, frontend is served by backend, so relative URLs work
+// In development, set VITE_API_URL=http://localhost:8000 in .env
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
-console.log(`[API Client] Using API base URL: ${API_BASE_URL}`);
+console.log(`[API Client] Using API base URL: ${API_BASE_URL || '(relative - same origin)'}`);
 
 // Storage keys for authentication tokens
 const ACCESS_TOKEN_KEY = 'worklog_access_token';
