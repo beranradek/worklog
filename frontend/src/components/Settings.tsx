@@ -49,7 +49,8 @@ export const Settings: React.FC<SettingsProps> = ({ open, onOpenChange, user }) 
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (open) {
