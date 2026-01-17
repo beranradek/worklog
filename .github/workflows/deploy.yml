@@ -32,6 +32,7 @@ on:
 
 env:
   PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
   IMAGE_NAME: worklog-app
 
 jobs:
@@ -46,6 +47,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # -------------------------------------------------------------------------
+      # Frontend Tests
+      # -------------------------------------------------------------------------
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend linting
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Check frontend TypeScript
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      # -------------------------------------------------------------------------
+      # Backend Tests
+      # -------------------------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -134,7 +164,7 @@ jobs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
     environment:
       name: production
-      url: https://${{ secrets.AZURE_APP_NAME }}.azurewebsites.net
+      # Note: Environment URL is set after deployment completes
 
     steps:
       - name: Login to Azure
@@ -143,6 +173,7 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Deploy to Azure Web App
+        id: deploy
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ secrets.AZURE_APP_NAME }}
@@ -152,11 +183,14 @@ jobs:
         run: sleep 30
 
       - name: Health check
+        env:
+          APP_NAME: ${{ secrets.AZURE_APP_NAME }}
         run: |
           for i in {1..5}; do
-            response=$(curl -s -o /dev/null -w "%{http_code}" "https://${{ secrets.AZURE_APP_NAME }}.azurewebsites.net/health")
+            response=$(curl -s -o /dev/null -w "%{http_code}" "https://${APP_NAME}.azurewebsites.net/health")
             if [ "$response" = "200" ]; then
               echo "Health check passed!"
+              echo "Application URL: https://${APP_NAME}.azurewebsites.net"
               exit 0
             fi
             echo "Attempt $i: Got status $response, retrying..."
@@ -180,10 +214,13 @@ jobs:
 
     steps:
       - name: Deployment Status
+        env:
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          APP_NAME: ${{ secrets.AZURE_APP_NAME }}
         run: |
-          if [ "${{ needs.deploy.result }}" = "success" ]; then
+          if [ "$DEPLOY_RESULT" = "success" ]; then
             echo "✅ Deployment successful!"
-            echo "🔗 URL: https://${{ secrets.AZURE_APP_NAME }}.azurewebsites.net"
+            echo "🔗 URL: https://${APP_NAME}.azurewebsites.net"
           else
             echo "❌ Deployment failed!"
             echo "Check the workflow logs for details."

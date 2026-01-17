@@ -1,15 +1,18 @@
 """Main FastAPI application with worklog and authentication endpoints."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import date
+from pathlib import Path
 from typing import Optional
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 
 from .auth import (
     AuthCallbackRequest,
@@ -42,6 +45,22 @@ logger = logging.getLogger(__name__)
 
 # HTTP Bearer for extracting token
 security = HTTPBearer(auto_error=False)
+
+# Static files directory (React build output)
+# In production, this is at /app/static (copied during Docker build)
+# For local development, it can be at ../frontend/dist or similar
+STATIC_DIR = Path(os.getenv("STATIC_DIR", "/app/static"))
+
+
+def get_static_dir() -> Optional[Path]:
+    """Get the static directory if it exists."""
+    if STATIC_DIR.exists() and STATIC_DIR.is_dir():
+        return STATIC_DIR
+    # Fallback for local development
+    local_static = Path(__file__).parent.parent.parent / "frontend" / "dist"
+    if local_static.exists() and local_static.is_dir():
+        return local_static
+    return None
 
 
 @asynccontextmanager
@@ -87,6 +106,99 @@ def create_app(settings: Settings = None) -> FastAPI:
 
     # Include routers
     register_routes(app, settings)
+
+    # Mount static files and SPA fallback if static directory exists
+    static_dir = get_static_dir()
+    if static_dir:
+        logger.info(f"Serving static files from: {static_dir}")
+
+        # Serve static assets (JS, CSS, images) with caching
+        # These are hashed files from Vite build, so we can cache them long-term
+        assets_dir = static_dir / "assets"
+        if assets_dir.exists():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=str(assets_dir)),
+                name="assets",
+            )
+
+        # SPA fallback: serve index.html for all non-API, non-asset routes
+        @app.get("/{full_path:path}")
+        async def serve_spa(request: Request, full_path: str):
+            """
+            SPA fallback: serve index.html for client-side routing.
+
+            This catches all routes not handled by API endpoints and serves
+            the React app's index.html, allowing React Router to handle routing.
+            """
+            # Don't serve index.html for API routes or static assets
+            if full_path.startswith("api/") or full_path.startswith("assets/"):
+                raise HTTPException(status_code=404, detail="Not found")
+
+            # Check if it's a direct file request (e.g., favicon.ico, robots.txt)
+            file_path = static_dir / full_path
+            if file_path.is_file():
+                # Determine content type and caching based on file extension
+                suffix = file_path.suffix.lower()
+                media_type = {
+                    ".html": "text/html",
+                    ".js": "application/javascript",
+                    ".css": "text/css",
+                    ".json": "application/json",
+                    ".ico": "image/x-icon",
+                    ".svg": "image/svg+xml",
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".webp": "image/webp",
+                    ".woff": "font/woff",
+                    ".woff2": "font/woff2",
+                    ".txt": "text/plain",
+                }.get(suffix, "application/octet-stream")
+
+                # Cache static assets aggressively (they have hashed filenames)
+                # Don't cache HTML (it references the hashed assets)
+                cache_control = (
+                    "public, max-age=31536000, immutable"
+                    if suffix in {".js", ".css", ".woff", ".woff2"}
+                    else "public, max-age=3600"
+                    if suffix in {".ico", ".svg", ".png", ".jpg", ".jpeg", ".webp"}
+                    else "no-cache"
+                )
+
+                return FileResponse(
+                    file_path,
+                    media_type=media_type,
+                    headers={"Cache-Control": cache_control},
+                )
+
+            # Serve index.html for all other routes (SPA fallback)
+            index_path = static_dir / "index.html"
+            if index_path.is_file():
+                return FileResponse(
+                    index_path,
+                    media_type="text/html",
+                    headers={"Cache-Control": "no-cache"},
+                )
+
+            # Static directory exists but no index.html
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Also handle root path explicitly
+        @app.get("/")
+        async def serve_root():
+            """Serve the React app's index.html for the root path."""
+            index_path = static_dir / "index.html"
+            if index_path.is_file():
+                return FileResponse(
+                    index_path,
+                    media_type="text/html",
+                    headers={"Cache-Control": "no-cache"},
+                )
+            raise HTTPException(status_code=404, detail="Not found")
+
+    else:
+        logger.info("No static directory found, frontend will not be served")
 
     return app
 

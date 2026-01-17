@@ -2,9 +2,31 @@
 # Dockerfile for Worklog Application
 # =============================================================================
 # Multi-stage build for optimal image size and security
+# Builds both React frontend and Python backend into a single container
 
-# Stage 1: Builder
-FROM python:3.11-slim as builder
+# =============================================================================
+# Stage 1: Frontend Builder (Node.js)
+# =============================================================================
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /frontend
+
+# Copy package files first for better layer caching
+COPY frontend/package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy frontend source
+COPY frontend/ ./
+
+# Build the React app (output goes to /frontend/dist)
+RUN npm run build
+
+# =============================================================================
+# Stage 2: Backend Builder (Python)
+# =============================================================================
+FROM python:3.11-slim AS backend-builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,7 +49,9 @@ COPY sql/ sql/
 # Install dependencies
 RUN uv pip install --system --no-cache .
 
-# Stage 2: Production image
+# =============================================================================
+# Stage 3: Production Image
+# =============================================================================
 FROM python:3.11-slim
 
 # Install runtime dependencies only
@@ -42,13 +66,17 @@ RUN useradd --create-home --shell /bin/bash appuser
 # Set working directory
 WORKDIR /app
 
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Copy installed packages from backend builder
+COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
 # Copy application code
-COPY --from=builder /app/src /app/src
-COPY --from=builder /app/sql /app/sql
+COPY --from=backend-builder /app/src /app/src
+COPY --from=backend-builder /app/sql /app/sql
+
+# Copy built React frontend to static directory
+# The FastAPI app expects static files at /app/static
+COPY --from=frontend-builder /frontend/dist /app/static
 
 # Set ownership to non-root user
 RUN chown -R appuser:appuser /app
@@ -63,6 +91,7 @@ ENV APP_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=8000
 ENV WORKERS=2
+ENV STATIC_DIR=/app/static
 
 # Expose port
 EXPOSE 8000
