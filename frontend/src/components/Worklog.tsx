@@ -35,7 +35,7 @@ const formatTimeInput = (value: string): string => {
   const match = cleaned.match(/^(\d{1,2}):?(\d{0,2})$/);
   if (!match) return value; // Return as-is if doesn't match pattern
 
-  const [_, hours, minutes] = match;
+  const [, hours, minutes] = match;
   const h = parseInt(hours, 10);
   const m = minutes ? parseInt(minutes, 10) : 0;
 

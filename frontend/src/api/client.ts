@@ -155,6 +155,27 @@ export interface BulkLogToJiraResponse {
   results: BulkLogResult[];
 }
 
+/**
+ * Backend entry format (snake_case)
+ */
+interface BackendWorklogEntry {
+  id?: string | number;
+  issue_key: string;
+  start_time: string;
+  end_time: string;
+  description: string;
+  logged_to_jira?: boolean;
+  jira_worklog_id?: string | null;
+}
+
+/**
+ * Backend response for day worklog
+ */
+interface BackendDayWorklog {
+  date: string;
+  entries: BackendWorklogEntry[];
+}
+
 let isRefreshing = false;
 let refreshSubscribers: ((token: string) => void)[] = [];
 
@@ -262,7 +283,7 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
         const errorJson = JSON.parse(errorText);
         console.error('[API Client] Error response:', errorJson);
         throw new Error(errorJson.detail || errorJson.message || `API Error: ${response.status}`);
-      } catch (parseError) {
+      } catch {
         console.error('[API Client] Error response (raw):', errorText);
         throw new Error(`API Error: ${response.status} - ${errorText}`);
       }
@@ -278,7 +299,7 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
 /**
  * Transform backend entry (snake_case) to frontend format (camelCase)
  */
-function transformEntryFromBackend(backendEntry: any): WorklogEntry {
+function transformEntryFromBackend(backendEntry: BackendWorklogEntry): WorklogEntry {
   return {
     id: backendEntry.id || '',  // Keep as-is (can be string UUID or integer)
     issueKey: backendEntry.issue_key || '',
@@ -337,7 +358,7 @@ export const apiClient = {
 
   // Worklog
   getWorklog: async (date: string): Promise<DayWorklog> => {
-    const response: any = await fetchAPI(`/api/worklog/${date}`);
+    const response = await fetchAPI<BackendDayWorklog>(`/api/worklog/${date}`);
     return {
       date: response.date,
       entries: response.entries.map(transformEntryFromBackend),
@@ -347,7 +368,7 @@ export const apiClient = {
   saveWorklog: async (date: string, entries: WorklogEntry[]): Promise<DayWorklog> => {
     // Transform camelCase to snake_case for backend
     const backendEntries = entries.map(transformEntryToBackend);
-    const response: any = await fetchAPI(`/api/worklog/${date}`, {
+    const response = await fetchAPI<BackendDayWorklog>(`/api/worklog/${date}`, {
       method: 'PUT',
       body: JSON.stringify({ entries: backendEntries }),
     });

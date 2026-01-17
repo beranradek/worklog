@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -30,13 +30,7 @@ export const Settings: React.FC<SettingsProps> = ({ open, onOpenChange, user }) 
   });
   const toast = useToast();
 
-  useEffect(() => {
-    if (open) {
-      loadJiraConfig();
-    }
-  }, [open]);
-
-  const loadJiraConfig = async () => {
+  const loadJiraConfig = useCallback(async () => {
     setLoading(true);
     try {
       const config = await apiClient.getJiraConfig();
@@ -55,7 +49,13 @@ export const Settings: React.FC<SettingsProps> = ({ open, onOpenChange, user }) 
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    if (open) {
+      loadJiraConfig();
+    }
+  }, [open, loadJiraConfig]);
 
   const handleSave = async () => {
     setSaving(true);
