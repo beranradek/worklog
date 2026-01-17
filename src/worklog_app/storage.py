@@ -2,7 +2,6 @@
 
 import logging
 from datetime import date, datetime, time
-from typing import Optional
 
 from supabase import Client, create_client
 
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 class WorklogStorage:
     """Storage operations for worklog entries."""
 
-    def __init__(self, settings: Settings, access_token: Optional[str] = None):
+    def __init__(self, settings: Settings, access_token: str | None = None):
         """
         Initialize storage with Supabase client.
 
@@ -30,7 +29,7 @@ class WorklogStorage:
             access_token: User's access token for RLS authentication
         """
         self.settings = settings
-        self._client: Optional[Client] = None
+        self._client: Client | None = None
         self._access_token = access_token
 
     @property
@@ -106,7 +105,7 @@ class WorklogStorage:
             logger.error(f"Error fetching entries for {entry_date}: {e}")
             raise
 
-    async def get_entry_by_id(self, user: User, entry_id: int) -> Optional[WorklogEntry]:
+    async def get_entry_by_id(self, user: User, entry_id: int) -> WorklogEntry | None:
         """
         Get a specific worklog entry by ID.
 
@@ -169,7 +168,7 @@ class WorklogStorage:
 
     async def update_entry(
         self, user: User, entry_id: int, update: WorklogEntryUpdate
-    ) -> Optional[WorklogEntry]:
+    ) -> WorklogEntry | None:
         """
         Update an existing worklog entry.
 
@@ -324,7 +323,9 @@ class WorklogStorage:
             logger.error(f"Error fetching entries for range {start_date} - {end_date}: {e}")
             raise
 
-    async def get_unlogged_entries_for_date(self, user: User, entry_date: date) -> list[WorklogEntry]:
+    async def get_unlogged_entries_for_date(
+        self, user: User, entry_date: date
+    ) -> list[WorklogEntry]:
         """
         Get entries not yet logged to JIRA for a specific date.
 
@@ -354,7 +355,7 @@ class WorklogStorage:
 
     async def mark_entry_as_logged(
         self, user: User, entry_id: int, jira_worklog_id: str
-    ) -> Optional[WorklogEntry]:
+    ) -> WorklogEntry | None:
         """
         Mark an entry as logged to JIRA.
 
@@ -374,7 +375,7 @@ class WorklogStorage:
 
 
 def get_worklog_storage(
-    settings: Settings = None, access_token: Optional[str] = None
+    settings: Settings = None, access_token: str | None = None
 ) -> WorklogStorage:
     """Get WorklogStorage instance."""
     settings = settings or get_settings()

@@ -5,12 +5,11 @@ import os
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
-from typing import Optional
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
@@ -22,7 +21,6 @@ from .auth import (
     User,
     get_auth_service,
     get_current_user,
-    optional_current_user,
 )
 from .config import Settings, get_settings
 from .database import get_database_manager, init_database_on_startup
@@ -52,7 +50,7 @@ security = HTTPBearer(auto_error=False)
 STATIC_DIR = Path(os.getenv("STATIC_DIR", "/app/static"))
 
 
-def get_static_dir() -> Optional[Path]:
+def get_static_dir() -> Path | None:
     """Get the static directory if it exists."""
     if STATIC_DIR.exists() and STATIC_DIR.is_dir():
         return STATIC_DIR
@@ -72,9 +70,7 @@ async def lifespan(app: FastAPI):
     # Check database status
     status = await init_database_on_startup()
     if not status.initialized:
-        logger.warning(
-            "Database not initialized. Please run the SQL initialization script."
-        )
+        logger.warning("Database not initialized. Please run the SQL initialization script.")
 
     yield
 
@@ -161,9 +157,11 @@ def create_app(settings: Settings = None) -> FastAPI:
                 cache_control = (
                     "public, max-age=31536000, immutable"
                     if suffix in {".js", ".css", ".woff", ".woff2"}
-                    else "public, max-age=3600"
-                    if suffix in {".ico", ".svg", ".png", ".jpg", ".jpeg", ".webp"}
-                    else "no-cache"
+                    else (
+                        "public, max-age=3600"
+                        if suffix in {".ico", ".svg", ".png", ".jpg", ".jpeg", ".webp"}
+                        else "no-cache"
+                    )
                 )
 
                 return FileResponse(
@@ -238,7 +236,7 @@ def register_routes(app: FastAPI, settings: Settings):
             sql = db_manager.get_init_sql()
             return {"sql": sql}
         except FileNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+            raise HTTPException(status_code=404, detail=str(e)) from e
 
     # ==========================================================================
     # Authentication Endpoints
@@ -246,8 +244,8 @@ def register_routes(app: FastAPI, settings: Settings):
 
     @app.get("/api/auth/google", response_model=AuthResponse, tags=["Authentication"])
     async def google_auth(
-        redirect_url: Optional[str] = Query(None, description="Custom redirect URL"),
-        code_challenge: Optional[str] = Query(None, description="PKCE code challenge"),
+        redirect_url: str | None = Query(None, description="Custom redirect URL"),
+        code_challenge: str | None = Query(None, description="PKCE code challenge"),
         auth_service: AuthService = Depends(get_auth_service),
     ):
         """
@@ -261,8 +259,8 @@ def register_routes(app: FastAPI, settings: Settings):
 
     @app.get("/api/auth/google/redirect", tags=["Authentication"])
     async def google_auth_redirect(
-        redirect_url: Optional[str] = Query(None),
-        code_challenge: Optional[str] = Query(None),
+        redirect_url: str | None = Query(None),
+        code_challenge: str | None = Query(None),
         auth_service: AuthService = Depends(get_auth_service),
     ):
         """Redirect to Google OAuth (convenience endpoint) with PKCE support."""
@@ -292,7 +290,7 @@ def register_routes(app: FastAPI, settings: Settings):
 
     @app.post("/api/auth/logout", tags=["Authentication"])
     async def logout(
-        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+        credentials: HTTPAuthorizationCredentials | None = Depends(security),
         auth_service: AuthService = Depends(get_auth_service),
     ):
         """Sign out and invalidate session."""
@@ -310,7 +308,7 @@ def register_routes(app: FastAPI, settings: Settings):
     # ==========================================================================
 
     def get_storage_with_token(
-        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+        credentials: HTTPAuthorizationCredentials | None = Depends(security),
     ) -> WorklogStorage:
         """Get storage with user's access token for RLS."""
         token = credentials.credentials if credentials else None
@@ -447,7 +445,7 @@ def register_routes(app: FastAPI, settings: Settings):
 
     def get_jira_with_token(
         user: User = Depends(get_current_user),
-        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+        credentials: HTTPAuthorizationCredentials | None = Depends(security),
     ) -> JiraClient:
         """Get JIRA client with user's access token."""
         token = credentials.credentials if credentials else None
@@ -546,9 +544,7 @@ def register_routes(app: FastAPI, settings: Settings):
         for bulk_result in result.results:
             if bulk_result.success and bulk_result.jira_worklog_id:
                 for entry_id in bulk_result.entry_ids:
-                    await storage.mark_entry_as_logged(
-                        user, entry_id, bulk_result.jira_worklog_id
-                    )
+                    await storage.mark_entry_as_logged(user, entry_id, bulk_result.jira_worklog_id)
 
         return result
 

@@ -4,7 +4,6 @@ import base64
 import logging
 from collections import defaultdict
 from datetime import date, datetime, time
-from typing import Optional
 
 import httpx
 from supabase import Client, create_client
@@ -27,9 +26,7 @@ logger = logging.getLogger(__name__)
 class JiraClient:
     """Client for JIRA Cloud REST API v3."""
 
-    def __init__(
-        self, settings: Settings, user: User, access_token: Optional[str] = None
-    ):
+    def __init__(self, settings: Settings, user: User, access_token: str | None = None):
         """
         Initialize JIRA client.
 
@@ -41,8 +38,8 @@ class JiraClient:
         self.settings = settings
         self.user = user
         self.access_token = access_token
-        self._supabase: Optional[Client] = None
-        self._config: Optional[JiraConfig] = None
+        self._supabase: Client | None = None
+        self._config: JiraConfig | None = None
 
     @property
     def supabase(self) -> Client:
@@ -137,7 +134,7 @@ class JiraClient:
             logger.error(f"Error updating JIRA config: {e}")
             raise
 
-    async def _get_auth_header(self) -> Optional[str]:
+    async def _get_auth_header(self) -> str | None:
         """Get Basic auth header from stored credentials."""
         try:
             result = (
@@ -165,7 +162,7 @@ class JiraClient:
             logger.error(f"Error getting auth header: {e}")
             return None
 
-    async def _get_base_url(self) -> Optional[str]:
+    async def _get_base_url(self) -> str | None:
         """Get JIRA base URL from stored config."""
         try:
             result = (
@@ -430,7 +427,9 @@ class JiraClient:
                         success_count += 1
                     else:
                         error_text = response.text
-                        logger.error(f"JIRA API error for {issue_key}: {response.status_code} - {error_text}")
+                        logger.error(
+                            f"JIRA API error for {issue_key}: {response.status_code} - {error_text}"
+                        )
                         results.append(
                             BulkLogResult(
                                 issue_key=issue_key,
@@ -465,7 +464,7 @@ class JiraClient:
 
 
 def get_jira_client(
-    user: User, settings: Settings = None, access_token: Optional[str] = None
+    user: User, settings: Settings = None, access_token: str | None = None
 ) -> JiraClient:
     """Get JiraClient instance."""
     settings = settings or get_settings()

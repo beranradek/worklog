@@ -2,7 +2,6 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from supabase import Client, create_client
 
@@ -20,7 +19,7 @@ class DatabaseManager:
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self._client: Optional[Client] = None
+        self._client: Client | None = None
 
     @property
     def client(self) -> Client:
@@ -36,7 +35,7 @@ class DatabaseManager:
         """Check if required tables exist in the database."""
         try:
             # Try to query worklog_entries table
-            result = self.client.table("worklog_entries").select("id").limit(1).execute()
+            self.client.table("worklog_entries").select("id").limit(1).execute()
             return True
         except Exception as e:
             logger.debug(f"Tables check failed: {e}")
@@ -92,7 +91,7 @@ class DatabaseManager:
         # 2. Supabase CLI migrations
         # 3. Direct PostgreSQL connection (if available)
 
-        sql_content = self.get_init_sql()
+        self.get_init_sql()
 
         return DbStatus(
             initialized=False,
@@ -105,7 +104,7 @@ class DatabaseManager:
         )
 
 
-_db_manager: Optional[DatabaseManager] = None
+_db_manager: DatabaseManager | None = None
 
 
 def get_database_manager(settings: Settings = None) -> DatabaseManager:

@@ -1,7 +1,6 @@
 """Configuration management using Pydantic Settings."""
 
 from functools import lru_cache
-from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,10 +26,10 @@ class Settings(BaseSettings):
     # Supabase settings (required)
     supabase_url: str
     supabase_publishable_key: str
-    supabase_service_role_key: Optional[str] = None
+    supabase_service_role_key: str | None = None
 
     # JWT settings for token validation
-    jwt_secret: Optional[str] = None  # If not set, uses Supabase's public key
+    jwt_secret: str | None = None  # If not set, uses Supabase's public key
 
     # CORS settings
     cors_origins: str = "*"  # Comma-separated list of allowed origins
@@ -39,9 +38,9 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
 
     # Azure settings (optional, for deployment info)
-    azure_subscription_id: Optional[str] = None
-    azure_resource_group: Optional[str] = None
-    azure_app_name: Optional[str] = None
+    azure_subscription_id: str | None = None
+    azure_resource_group: str | None = None
+    azure_app_name: str | None = None
 
     @property
     def cors_origins_list(self) -> list[str]:

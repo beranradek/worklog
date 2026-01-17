@@ -1,7 +1,7 @@
 """Pydantic models for worklog entries and API requests/responses."""
 
-from datetime import date as Date, datetime, time
-from typing import Optional
+from datetime import date as Date
+from datetime import datetime, time
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -12,7 +12,7 @@ class WorklogEntryBase(BaseModel):
     issue_key: str = Field(..., min_length=1, max_length=50, description="JIRA issue key")
     start_time: time = Field(..., description="Start time (HH:MM)")
     end_time: time = Field(..., description="End time (HH:MM)")
-    description: Optional[str] = Field(None, max_length=2000, description="Work description")
+    description: str | None = Field(None, max_length=2000, description="Work description")
 
     @field_validator("issue_key")
     @classmethod
@@ -41,12 +41,12 @@ class WorklogEntryCreate(WorklogEntryBase):
 class WorklogEntryUpdate(BaseModel):
     """Model for updating a worklog entry (all fields optional)."""
 
-    issue_key: Optional[str] = Field(None, min_length=1, max_length=50)
-    start_time: Optional[time] = None
-    end_time: Optional[time] = None
-    description: Optional[str] = Field(None, max_length=2000)
-    logged_to_jira: Optional[bool] = None
-    jira_worklog_id: Optional[str] = None
+    issue_key: str | None = Field(None, min_length=1, max_length=50)
+    start_time: time | None = None
+    end_time: time | None = None
+    description: str | None = Field(None, max_length=2000)
+    logged_to_jira: bool | None = None
+    jira_worklog_id: str | None = None
 
 
 class WorklogEntry(WorklogEntryBase):
@@ -56,7 +56,7 @@ class WorklogEntry(WorklogEntryBase):
     user_id: str
     date: Date
     logged_to_jira: bool = False
-    jira_worklog_id: Optional[str] = None
+    jira_worklog_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -111,24 +111,24 @@ class SaveWorklogRequest(BaseModel):
 class JiraConfig(BaseModel):
     """User's JIRA configuration."""
 
-    jira_base_url: Optional[str] = None
-    jira_user_email: Optional[str] = None
+    jira_base_url: str | None = None
+    jira_user_email: str | None = None
     has_token: bool = False
 
 
 class JiraConfigUpdate(BaseModel):
     """Request to update JIRA configuration."""
 
-    jira_base_url: Optional[str] = Field(None, max_length=255)
-    jira_user_email: Optional[str] = Field(None, max_length=255)
-    jira_api_token: Optional[str] = Field(None, max_length=500)
+    jira_base_url: str | None = Field(None, max_length=255)
+    jira_user_email: str | None = Field(None, max_length=255)
+    jira_api_token: str | None = Field(None, max_length=500)
 
 
 class JiraConfigResponse(BaseModel):
     """Response with JIRA configuration status."""
 
     configured: bool
-    base_url: Optional[str] = None
+    base_url: str | None = None
     has_token: bool = False
     has_email: bool = False
 
@@ -144,8 +144,8 @@ class LogToJiraResponse(BaseModel):
 
     success: bool
     entry_id: int | str
-    jira_worklog_id: Optional[str] = None
-    error: Optional[str] = None
+    jira_worklog_id: str | None = None
+    error: str | None = None
 
 
 class BulkLogResult(BaseModel):
@@ -155,8 +155,8 @@ class BulkLogResult(BaseModel):
     success: bool
     entry_ids: list[int | str]
     duration: str
-    jira_worklog_id: Optional[str] = None
-    error: Optional[str] = None
+    jira_worklog_id: str | None = None
+    error: str | None = None
 
 
 class BulkLogToJiraResponse(BaseModel):

@@ -1,7 +1,6 @@
 """Supabase authentication module with Google OAuth support."""
 
 import logging
-from typing import Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
@@ -22,9 +21,9 @@ class User(BaseModel):
 
     id: UUID
     email: str
-    name: Optional[str] = None
-    avatar_url: Optional[str] = None
-    provider: Optional[str] = None
+    name: str | None = None
+    avatar_url: str | None = None
+    provider: str | None = None
 
 
 class AuthResponse(BaseModel):
@@ -55,7 +54,7 @@ def get_supabase_client(settings: Settings = Depends(get_settings)) -> Client:
     return create_client(settings.supabase_url, settings.supabase_publishable_key)
 
 
-def get_supabase_admin_client(settings: Settings = Depends(get_settings)) -> Optional[Client]:
+def get_supabase_admin_client(settings: Settings = Depends(get_settings)) -> Client | None:
     """Create Supabase admin client with service role key (for admin operations)."""
     if not settings.supabase_service_role_key:
         return None
@@ -64,7 +63,7 @@ def get_supabase_admin_client(settings: Settings = Depends(get_settings)) -> Opt
 
 async def get_current_user(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     settings: Settings = Depends(get_settings),
 ) -> User:
     """
@@ -116,13 +115,13 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
 
 
 async def optional_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     settings: Settings = Depends(get_settings),
-) -> Optional[User]:
+) -> User | None:
     """
     Optionally get current user if authenticated.
 
@@ -159,7 +158,9 @@ class AuthService:
         self.settings = settings
         self.supabase = create_client(settings.supabase_url, settings.supabase_publishable_key)
 
-    def get_google_oauth_url(self, redirect_url: Optional[str] = None, code_challenge: Optional[str] = None) -> str:
+    def get_google_oauth_url(
+        self, redirect_url: str | None = None, code_challenge: str | None = None
+    ) -> str:
         """
         Generate Google OAuth authorization URL with PKCE.
 
@@ -179,7 +180,9 @@ class AuthService:
         }
 
         if code_challenge:
-            logger.info(f"Adding PKCE code_challenge (length={len(code_challenge)}): {code_challenge[:10]}...")
+            logger.info(
+                f"Adding PKCE code_challenge (length={len(code_challenge)}): {code_challenge[:10]}..."
+            )
             params["code_challenge"] = code_challenge
             params["code_challenge_method"] = "S256"
         else:
@@ -189,6 +192,7 @@ class AuthService:
 
         # Use the raw authorize endpoint with PKCE parameters
         from urllib.parse import urlencode
+
         query_string = urlencode(params)
         auth_url = f"{self.settings.supabase_url}/auth/v1/authorize?{query_string}"
 
@@ -207,12 +211,13 @@ class AuthService:
             TokenResponse with access token and user info
         """
         try:
-            logger.info(f"Exchanging code (length={len(code)}, starts={code[:10]}...) with verifier (length={len(code_verifier)}, starts={code_verifier[:10]}...)")
+            logger.info(
+                f"Exchanging code (length={len(code)}, starts={code[:10]}...) with verifier (length={len(code_verifier)}, starts={code_verifier[:10]}...)"
+            )
 
-            response = self.supabase.auth.exchange_code_for_session({
-                "auth_code": code,
-                "code_verifier": code_verifier
-            })
+            response = self.supabase.auth.exchange_code_for_session(
+                {"auth_code": code, "code_verifier": code_verifier}
+            )
 
             logger.info("Code exchange successful")
 
@@ -235,9 +240,9 @@ class AuthService:
                     email=user_data.email,
                     name=user_metadata.get("full_name") or user_metadata.get("name"),
                     avatar_url=user_metadata.get("avatar_url") or user_metadata.get("picture"),
-                    provider=user_data.app_metadata.get("provider")
-                    if user_data.app_metadata
-                    else None,
+                    provider=(
+                        user_data.app_metadata.get("provider") if user_data.app_metadata else None
+                    ),
                 ),
             )
 
@@ -248,7 +253,7 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Failed to exchange authorization code: {str(e)}",
-            )
+            ) from e
 
     async def refresh_session(self, refresh_token: str) -> TokenResponse:
         """
@@ -282,9 +287,9 @@ class AuthService:
                     email=user_data.email,
                     name=user_metadata.get("full_name") or user_metadata.get("name"),
                     avatar_url=user_metadata.get("avatar_url") or user_metadata.get("picture"),
-                    provider=user_data.app_metadata.get("provider")
-                    if user_data.app_metadata
-                    else None,
+                    provider=(
+                        user_data.app_metadata.get("provider") if user_data.app_metadata else None
+                    ),
                 ),
             )
 
@@ -295,7 +300,7 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Failed to refresh session",
-            )
+            ) from e
 
     async def sign_out(self, access_token: str) -> bool:
         """
