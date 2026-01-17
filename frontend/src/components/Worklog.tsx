@@ -165,19 +165,21 @@ export const Worklog: React.FC = () => {
   };
 
   // Update entry
-  const updateEntry = (id: string, updates: Partial<WorklogEntry>) => {
+  const updateEntry = (id: string | number, updates: Partial<WorklogEntry>) => {
     if (!worklog) return;
+    const idStr = String(id);
     const entries = worklog.entries.map((entry) =>
-      entry.id === id ? { ...entry, ...updates } : entry
+      String(entry.id) === idStr ? { ...entry, ...updates } : entry
     );
     saveWorklog(entries);
   };
 
   // Delete entry
-  const deleteEntry = (id: string) => {
+  const deleteEntry = (id: string | number) => {
     if (!worklog) return;
-    const entryToDelete = worklog.entries.find((entry) => entry.id === id);
-    const entries = worklog.entries.filter((entry) => entry.id !== id);
+    const idStr = String(id);
+    const entryToDelete = worklog.entries.find((entry) => String(entry.id) === idStr);
+    const entries = worklog.entries.filter((entry) => String(entry.id) !== idStr);
 
     // If deleting a draft entry (no issue key), just update local state
     if (entryToDelete && (!entryToDelete.issueKey || entryToDelete.issueKey.trim() === '')) {
@@ -201,11 +203,11 @@ export const Worklog: React.FC = () => {
       return;
     }
 
-    setLoggingEntryId(entry.id);
+    setLoggingEntryId(String(entry.id));
     try {
-      const result = await apiClient.logToJira(dateKey, entry.id);
+      const result = await apiClient.logToJira(dateKey, String(entry.id));
       if (result.success) {
-        updateEntry(entry.id, {
+        updateEntry(String(entry.id), {
           loggedToJira: true,
           jiraWorklogId: result.jira_worklog_id || null,
         });
@@ -436,7 +438,9 @@ export const Worklog: React.FC = () => {
           ) : (
             <>
               {/* Entries */}
-              {worklog?.entries.map((entry) => (
+              {worklog?.entries.map((entry) => {
+                const entryIdStr = String(entry.id);
+                return (
                 <div
                   key={entry.id}
                   className={`
@@ -451,19 +455,19 @@ export const Worklog: React.FC = () => {
                     {/* Issue Key */}
                     <Input
                       placeholder="ISSUE-123"
-                      value={editingIssueKeys[entry.id] ?? entry.issueKey}
+                      value={editingIssueKeys[entryIdStr] ?? entry.issueKey}
                       onChange={(e) => {
                         setEditingIssueKeys(prev => ({
                           ...prev,
-                          [entry.id]: e.target.value.toUpperCase()
+                          [entryIdStr]: e.target.value.toUpperCase()
                         }));
                       }}
                       onBlur={(e) => {
-                        if (editingIssueKeys[entry.id] !== undefined) {
-                          updateEntry(entry.id, { issueKey: e.target.value.toUpperCase() });
+                        if (editingIssueKeys[entryIdStr] !== undefined) {
+                          updateEntry(entryIdStr, { issueKey: e.target.value.toUpperCase() });
                           setEditingIssueKeys(prev => {
                             const newState = { ...prev };
-                            delete newState[entry.id];
+                            delete newState[entryIdStr];
                             return newState;
                           });
                         }
@@ -475,22 +479,22 @@ export const Worklog: React.FC = () => {
                     {/* Time Range */}
                     <Input
                       type="text"
-                      value={editingTimes[entry.id]?.startTime ?? entry.startTime}
+                      value={editingTimes[entryIdStr]?.startTime ?? entry.startTime}
                       onChange={(e) => {
                         setEditingTimes(prev => ({
                           ...prev,
-                          [entry.id]: { ...prev[entry.id], startTime: e.target.value }
+                          [entryIdStr]: { ...prev[entryIdStr], startTime: e.target.value }
                         }));
                       }}
                       onBlur={(e) => {
-                        if (editingTimes[entry.id]?.startTime !== undefined) {
-                          updateEntry(entry.id, { startTime: e.target.value });
+                        if (editingTimes[entryIdStr]?.startTime !== undefined) {
+                          updateEntry(entryIdStr, { startTime: e.target.value });
                           setEditingTimes(prev => {
                             const newState = { ...prev };
-                            if (newState[entry.id]) {
-                              delete newState[entry.id].startTime;
-                              if (Object.keys(newState[entry.id]).length === 0) {
-                                delete newState[entry.id];
+                            if (newState[entryIdStr]) {
+                              delete newState[entryIdStr].startTime;
+                              if (Object.keys(newState[entryIdStr]).length === 0) {
+                                delete newState[entryIdStr];
                               }
                             }
                             return newState;
@@ -504,22 +508,22 @@ export const Worklog: React.FC = () => {
                     <span className="text-muted-foreground">-</span>
                     <Input
                       type="text"
-                      value={editingTimes[entry.id]?.endTime ?? entry.endTime}
+                      value={editingTimes[entryIdStr]?.endTime ?? entry.endTime}
                       onChange={(e) => {
                         setEditingTimes(prev => ({
                           ...prev,
-                          [entry.id]: { ...prev[entry.id], endTime: e.target.value }
+                          [entryIdStr]: { ...prev[entryIdStr], endTime: e.target.value }
                         }));
                       }}
                       onBlur={(e) => {
-                        if (editingTimes[entry.id]?.endTime !== undefined) {
-                          updateEntry(entry.id, { endTime: e.target.value });
+                        if (editingTimes[entryIdStr]?.endTime !== undefined) {
+                          updateEntry(entryIdStr, { endTime: e.target.value });
                           setEditingTimes(prev => {
                             const newState = { ...prev };
-                            if (newState[entry.id]) {
-                              delete newState[entry.id].endTime;
-                              if (Object.keys(newState[entry.id]).length === 0) {
-                                delete newState[entry.id];
+                            if (newState[entryIdStr]) {
+                              delete newState[entryIdStr].endTime;
+                              if (Object.keys(newState[entryIdStr]).length === 0) {
+                                delete newState[entryIdStr];
                               }
                             }
                             return newState;
@@ -534,8 +538,8 @@ export const Worklog: React.FC = () => {
                     {/* Duration */}
                     <span className="text-sm text-muted-foreground min-w-[50px]">
                       {(() => {
-                        const startTime = editingTimes[entry.id]?.startTime ?? entry.startTime;
-                        const endTime = editingTimes[entry.id]?.endTime ?? entry.endTime;
+                        const startTime = editingTimes[entryIdStr]?.startTime ?? entry.startTime;
+                        const endTime = editingTimes[entryIdStr]?.endTime ?? entry.endTime;
                         return startTime && endTime
                           ? formatDuration(calculateDuration(startTime, endTime))
                           : '-';
@@ -554,10 +558,10 @@ export const Worklog: React.FC = () => {
                           variant="outline"
                           size="sm"
                           onClick={() => logToJira(entry)}
-                          disabled={!entry.issueKey || !jiraConfig?.configured || loggingEntryId === entry.id}
+                          disabled={!entry.issueKey || !jiraConfig?.configured || loggingEntryId === entryIdStr}
                           title={!jiraConfig?.configured ? 'JIRA not configured' : 'Log to JIRA'}
                         >
-                          {loggingEntryId === entry.id ? (
+                          {loggingEntryId === entryIdStr ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
                             <Upload className="h-4 w-4" />
@@ -579,7 +583,7 @@ export const Worklog: React.FC = () => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => deleteEntry(entry.id)}
+                        onClick={() => deleteEntry(entryIdStr)}
                         className="text-destructive hover:text-destructive"
                         disabled={entry.loggedToJira}
                         title="Delete entry"
@@ -592,19 +596,19 @@ export const Worklog: React.FC = () => {
                   {/* Description */}
                   <Input
                     placeholder="Work description..."
-                    value={editingDescriptions[entry.id] ?? entry.description}
+                    value={editingDescriptions[entryIdStr] ?? entry.description}
                     onChange={(e) => {
                       setEditingDescriptions(prev => ({
                         ...prev,
-                        [entry.id]: e.target.value
+                        [entryIdStr]: e.target.value
                       }));
                     }}
                     onBlur={(e) => {
-                      if (editingDescriptions[entry.id] !== undefined) {
-                        updateEntry(entry.id, { description: e.target.value });
+                      if (editingDescriptions[entryIdStr] !== undefined) {
+                        updateEntry(entryIdStr, { description: e.target.value });
                         setEditingDescriptions(prev => {
                           const newState = { ...prev };
-                          delete newState[entry.id];
+                          delete newState[entryIdStr];
                           return newState;
                         });
                       }
@@ -613,7 +617,8 @@ export const Worklog: React.FC = () => {
                     disabled={entry.loggedToJira}
                   />
                 </div>
-              ))}
+              );
+              })}
 
               {/* Empty State */}
               {(!worklog?.entries || worklog.entries.length === 0) && (
