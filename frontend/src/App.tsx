@@ -9,8 +9,12 @@ import {
   setStoredAccessToken,
   setStoredRefreshToken,
   setStoredUser,
+  setTokenExpiry,
   clearAuth,
   hasStoredAccessToken,
+  startProactiveRefresh,
+  stopProactiveRefresh,
+  isSessionExpired,
   type User
 } from '@/api/client';
 import { retrieveCodeVerifier } from '@/lib/pkce';
@@ -51,20 +55,30 @@ function App() {
           setStoredAccessToken(tokenResponse.access_token);
           setStoredRefreshToken(tokenResponse.refresh_token);
           setStoredUser(tokenResponse.user);
+          setTokenExpiry(tokenResponse.expires_in);
 
           setUser(tokenResponse.user);
           setAuthState('authenticated');
+          startProactiveRefresh();
         } else if (hasStoredAccessToken()) {
           // Check if we have stored tokens - validate them
           console.log('[Auth] Checking stored session');
-          try {
-            const currentUser = await apiClient.getCurrentUser();
-            setUser(currentUser);
-            setAuthState('authenticated');
-          } catch (error) {
-            console.error('[Auth] Stored session invalid:', error);
+          // Check if 12-hour session has expired
+          if (isSessionExpired()) {
+            console.log('[Auth] 12-hour session expired');
             clearAuth();
             setAuthState('unauthenticated');
+          } else {
+            try {
+              const currentUser = await apiClient.getCurrentUser();
+              setUser(currentUser);
+              setAuthState('authenticated');
+              startProactiveRefresh();
+            } catch (error) {
+              console.error('[Auth] Stored session invalid:', error);
+              clearAuth();
+              setAuthState('unauthenticated');
+            }
           }
         } else {
           // No code and no stored tokens - unauthenticated
@@ -122,7 +136,7 @@ function App() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => apiClient.logout()}
+                onClick={() => { stopProactiveRefresh(); apiClient.logout(); }}
                 title="Logout"
               >
                 <LogOut className="h-4 w-4" />

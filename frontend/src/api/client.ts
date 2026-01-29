@@ -13,6 +13,11 @@ console.log(`[API Client] Using API base URL: ${API_BASE_URL || '(relative - sam
 const ACCESS_TOKEN_KEY = 'worklog_access_token';
 const REFRESH_TOKEN_KEY = 'worklog_refresh_token';
 const USER_KEY = 'worklog_user';
+const TOKEN_EXPIRY_KEY = 'worklog_token_expiry';
+const SESSION_START_KEY = 'worklog_session_start';
+
+// Session lasts 12 hours maximum
+const MAX_SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
 
 /**
  * Get the stored access token from localStorage
@@ -75,12 +80,49 @@ export function setStoredUser(user: User | null): void {
 }
 
 /**
+ * Store token expiry timestamp
+ */
+export function setTokenExpiry(expiresIn: number): void {
+  // expiresIn is in seconds; store absolute expiry timestamp
+  const expiryTime = Date.now() + expiresIn * 1000;
+  localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTime));
+}
+
+/**
+ * Get the stored token expiry timestamp (ms since epoch)
+ */
+export function getTokenExpiry(): number | null {
+  const stored = localStorage.getItem(TOKEN_EXPIRY_KEY);
+  return stored ? parseInt(stored, 10) : null;
+}
+
+/**
+ * Record when the session started
+ */
+export function setSessionStart(): void {
+  if (!localStorage.getItem(SESSION_START_KEY)) {
+    localStorage.setItem(SESSION_START_KEY, String(Date.now()));
+  }
+}
+
+/**
+ * Check if the 12-hour session has expired
+ */
+export function isSessionExpired(): boolean {
+  const start = localStorage.getItem(SESSION_START_KEY);
+  if (!start) return false;
+  return Date.now() - parseInt(start, 10) > MAX_SESSION_DURATION_MS;
+}
+
+/**
  * Clear all stored authentication data
  */
 export function clearAuth(): void {
   setStoredAccessToken(null);
   setStoredRefreshToken(null);
   setStoredUser(null);
+  localStorage.removeItem(TOKEN_EXPIRY_KEY);
+  localStorage.removeItem(SESSION_START_KEY);
 }
 
 /**
@@ -215,6 +257,7 @@ async function refreshAccessToken(): Promise<string | null> {
     setStoredAccessToken(data.access_token);
     setStoredRefreshToken(data.refresh_token);
     setStoredUser(data.user);
+    setTokenExpiry(data.expires_in);
     return data.access_token;
   } catch (error) {
     console.error('Token refresh failed:', error);
@@ -323,6 +366,49 @@ function transformEntryToBackend(entry: WorklogEntry) {
     end_time: entry.endTime,
     description: entry.description,
   };
+}
+
+let proactiveRefreshTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Start a proactive token refresh timer.
+ * Checks every 60 seconds if the token is about to expire (within 2 minutes)
+ * and refreshes it automatically. Stops after 12 hours (max session duration).
+ */
+export function startProactiveRefresh(): void {
+  stopProactiveRefresh();
+  setSessionStart();
+
+  proactiveRefreshTimer = setInterval(async () => {
+    // End session after 12 hours
+    if (isSessionExpired()) {
+      console.log('[Auth] 12-hour session expired, logging out');
+      stopProactiveRefresh();
+      clearAuth();
+      window.location.href = '/';
+      return;
+    }
+
+    const expiry = getTokenExpiry();
+    if (!expiry) return;
+
+    // Refresh if token expires within the next 2 minutes
+    const timeUntilExpiry = expiry - Date.now();
+    if (timeUntilExpiry < 2 * 60 * 1000) {
+      console.log('[Auth] Proactively refreshing token before expiry');
+      await refreshAccessToken();
+    }
+  }, 60 * 1000); // Check every 60 seconds
+}
+
+/**
+ * Stop the proactive token refresh timer.
+ */
+export function stopProactiveRefresh(): void {
+  if (proactiveRefreshTimer) {
+    clearInterval(proactiveRefreshTimer);
+    proactiveRefreshTimer = null;
+  }
 }
 
 /**

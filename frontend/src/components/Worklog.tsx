@@ -46,6 +46,20 @@ const formatTimeInput = (value: string): string => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
+const addMinutesToTime = (timeStr: string, minutes: number): string => {
+  const [h, m] = timeStr.split(':').map(Number);
+  const totalMinutes = h * 60 + m + minutes;
+  const newH = Math.min(23, Math.floor(totalMinutes / 60));
+  const newM = totalMinutes >= 24 * 60 ? 59 : totalMinutes % 60;
+  return `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`;
+};
+
+const isTimeBeforeOrEqual = (a: string, b: string): boolean => {
+  const [aH, aM] = a.split(':').map(Number);
+  const [bH, bM] = b.split(':').map(Number);
+  return aH * 60 + aM >= bH * 60 + bM;
+};
+
 export const Worklog: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [worklog, setWorklog] = useState<DayWorklog | null>(null);
@@ -488,17 +502,36 @@ export const Worklog: React.FC = () => {
                       }}
                       onBlur={(e) => {
                         if (editingTimes[entryIdStr]?.startTime !== undefined) {
-                          updateEntry(entryIdStr, { startTime: e.target.value });
-                          setEditingTimes(prev => {
-                            const newState = { ...prev };
-                            if (newState[entryIdStr]) {
-                              delete newState[entryIdStr].startTime;
-                              if (Object.keys(newState[entryIdStr]).length === 0) {
-                                delete newState[entryIdStr];
+                          const formattedStart = formatTimeInput(e.target.value);
+                          const currentEnd = editingTimes[entryIdStr]?.endTime ?? entry.endTime;
+                          const formattedEnd = formatTimeInput(currentEnd);
+                          if (formattedStart.match(/^\d{2}:\d{2}$/) && formattedEnd.match(/^\d{2}:\d{2}$/) && isTimeBeforeOrEqual(formattedStart, formattedEnd)) {
+                            const newEnd = addMinutesToTime(formattedStart, 15);
+                            updateEntry(entryIdStr, { startTime: e.target.value, endTime: newEnd });
+                            setEditingTimes(prev => {
+                              const newState = { ...prev };
+                              if (newState[entryIdStr]) {
+                                delete newState[entryIdStr].startTime;
+                                delete newState[entryIdStr].endTime;
+                                if (Object.keys(newState[entryIdStr]).length === 0) {
+                                  delete newState[entryIdStr];
+                                }
                               }
-                            }
-                            return newState;
-                          });
+                              return newState;
+                            });
+                          } else {
+                            updateEntry(entryIdStr, { startTime: e.target.value });
+                            setEditingTimes(prev => {
+                              const newState = { ...prev };
+                              if (newState[entryIdStr]) {
+                                delete newState[entryIdStr].startTime;
+                                if (Object.keys(newState[entryIdStr]).length === 0) {
+                                  delete newState[entryIdStr];
+                                }
+                              }
+                              return newState;
+                            });
+                          }
                         }
                       }}
                       placeholder="HH:MM"
